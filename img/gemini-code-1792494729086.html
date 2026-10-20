@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Игра 1: Найди совпадение</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #f59e0b;
+            --primary: #6366f1;
+            --text: #f8fafc;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            width: 100%;
+            max-width: 480px;
+            text-align: center;
+            box-sizing: border-box;
+        }
+
+        h1 { color: var(--accent); margin-top: 0; }
+
+        input, button {
+            padding: 12px 16px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: none;
+            outline: none;
+            margin: 10px 0;
+            width: 80%;
+        }
+
+        input { background: #334155; color: white; text-align: center; }
+
+        button {
+            background: var(--primary);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            background: #4f46e5;
+        }
+
+        .hidden { display: none !important; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: #334155;
+            height: 70px;
+            border-radius: 10px;
+            font-size: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.3s;
+        }
+
+        .card.flipped {
+            background: #475569;
+            transform: rotateY(180deg);
+        }
+
+        .card.matched {
+            background: #10b981;
+            cursor: default;
+        }
+
+        /* Сертификат */
+        .certificate {
+            background: linear-gradient(135deg, #fff, #fef3c7);
+            color: #1e293b;
+            padding: 25px;
+            border: 6px double #d97706;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+
+        .certificate h2 { color: #b45309; margin-top: 0; }
+        .player-title { font-size: 22px; font-weight: bold; color: #4338ca; }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="regScreen">
+        <h1>🎮 Найди совпадение</h1>
+        <p>Введите имя игрока для начала:</p>
+        <input type="text" id="playerName" placeholder="Имя игрока...">
+        <br>
+        <button onclick="startGame()">Начать игру</button>
+    </div>
+
+    <div class="container hidden" id="gameScreen">
+        <h2 id="playerGreeting"></h2>
+        <p>Ходов: <span id="moveCount">0</span></p>
+        <div class="grid" id="grid"></div>
+    </div>
+
+    <div class="container hidden" id="certScreen">
+        <h1>🎉 Поздравляем!</h1>
+        <div class="certificate">
+            <h2>СЕРТИФИКАТ ПОБЕДИТЕЛЯ</h2>
+            <p>Настоящим подтверждается, что</p>
+            <div class="player-title" id="certName"></div>
+            <p>успешно прошёл(ла) игру <b>«Найди совпадение»</b> за <b id="certMoves"></b> ходов!</p>
+            <small style="color: #64748b;">Дата прохождения: 2026 год</small>
+        </div>
+        <button onclick="location.reload()" style="margin-top: 20px;">Сыграть снова</button>
+    </div>
+
+    <script>
+        const emojis = ['🚀', '🚀', '⭐', '⭐', '🎈', '🎈', '🍕', '🍕', '🐱', '🐱', '🎮', '🎮'];
+        let playerName = "";
+        let moves = 0;
+        let firstCard = null;
+        let secondCard = null;
+        let lockBoard = false;
+        let matchedPairs = 0;
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'flip') {
+                osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.05);
+            } else if (type === 'match') {
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
+            } else if (type === 'win') {
+                osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+            }
+        }
+
+        function startGame() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name) return alert('Введите имя!');
+            playerName = name;
+
+            document.getElementById('regScreen').classList.add('hidden');
+            document.getElementById('gameScreen').classList.remove('hidden');
+            document.getElementById('playerGreeting').textContent = `Игрок: ${playerName}`;
+
+            createBoard();
+        }
+
+        function createBoard() {
+            const grid = document.getElementById('grid');
+            const shuffled = emojis.sort(() => 0.5 - Math.random());
+            grid.innerHTML = '';
+
+            shuffled.forEach((symbol) => {
+                const card = document.createElement('div');
+                card.classList.add('card');
+                card.dataset.symbol = symbol;
+                card.addEventListener('click', flipCard);
+                grid.appendChild(card);
+            });
+        }
+
+        function flipCard() {
+            if (lockBoard || this === firstCard || this.classList.contains('matched')) return;
+
+            playSound('flip');
+            this.classList.add('flipped');
+            this.textContent = this.dataset.symbol;
+
+            if (!firstCard) {
+                firstCard = this;
+                return;
+            }
+
+            secondCard = this;
+            moves++;
+            document.getElementById('moveCount').textContent = moves;
+            checkMatch();
+        }
+
+        function checkMatch() {
+            let isMatch = firstCard.dataset.symbol === secondCard.dataset.symbol;
+            if (isMatch) {
+                playSound('match');
+                firstCard.classList.add('matched');
+                secondCard.classList.add('matched');
+                matchedPairs++;
+                resetBoard();
+                if (matchedPairs === emojis.length / 2) {
+                    setTimeout(finishGame, 500);
+                }
+            } else {
+                lockBoard = true;
+                setTimeout(() => {
+                    firstCard.classList.remove('flipped');
+                    secondCard.classList.remove('flipped');
+                    firstCard.textContent = '';
+                    secondCard.textContent = '';
+                    resetBoard();
+                }, 800);
+            }
+        }
+
+        function resetBoard() {
+            [firstCard, secondCard, lockBoard] = [null, null, false];
+        }
+
+        function finishGame() {
+            playSound('win');
+            document.getElementById('gameScreen').classList.add('hidden');
+            document.getElementById('certScreen').classList.remove('hidden');
+            document.getElementById('certName').textContent = playerName;
+            document.getElementById('certMoves').textContent = moves;
+        }
+    </script>
+</body>
+</html>
